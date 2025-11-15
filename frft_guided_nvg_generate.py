@@ -86,18 +86,44 @@ def make_filter_vector(N: int, kind: str) -> np.ndarray:
 def filtered_time_series(series: np.ndarray,
                          order: float,
                          transform: str,
-                         filter_kind: str) -> np.ndarray:
+                         filter_kind: str,
+                         padding: str = "none") -> np.ndarray:
+    """
+    series: 1D array (length N_orig)
+    padding:
+      - 'none': no time-domain padding (circular-type behaviour)
+      - 'zero': zero-pad to 2*N_orig before transform, then crop back
+    """
     x = series.astype(np.float32, copy=False)
-    N = x.size
+    N_orig = x.size
+
+    padding = padding.lower()
+    if padding == "zero":
+        N_pad = 2 * N_orig
+        x_pad = np.zeros(N_pad, dtype=np.float32)
+        x_pad[:N_orig] = x
+        x_proc = x_pad
+        N = N_pad
+    elif padding == "none":
+        x_proc = x
+        N = N_orig
+    else:
+        raise ValueError(f"Unknown padding mode: {padding}")
 
     F, Finv = get_transform_mats(N, order, transform)
-    x_c = x.astype(np.complex64)
+    x_c = x_proc.astype(np.complex64)
 
     S = (F @ x_c) / math.sqrt(N)
     g = make_filter_vector(N, filter_kind)
     Sf = g.astype(np.complex64) * S
     Yc = (Finv @ Sf) * math.sqrt(N)
-    Y = np.abs(Yc).astype(np.float32)
+    Y_full = np.abs(Yc).astype(np.float32)
+
+    if padding == "zero":
+        Y = Y_full[:N_orig]
+    else:
+        Y = Y_full
+
     return Y
 
 
@@ -118,11 +144,14 @@ def build_weighted_nvg_filter_then_compare(series: np.ndarray,
                                            transform: str,
                                            filter_kind: str,
                                            eps: float = 1e-8,
-                                           weight_floor: float = 1e-6) -> np.ndarray:
+                                           weight_floor: float = 1e-6,
+                                           padding: str = "none") -> np.ndarray:
     """
     NVG edges on ORIGINAL series; weights from filtered time features Y.
     d(u,v) = |Y[u]-Y[v]| / (|Y[u]| + |Y[v]| + eps) in [0,1]
     w(u,v) = max(1 - d(u,v), weight_floor)
+
+    padding: passed to filtered_time_series ('none' or 'zero').
     """
     N = series.size
 
@@ -130,7 +159,7 @@ def build_weighted_nvg_filter_then_compare(series: np.ndarray,
         ts=series, xs=xs, directed=None, weighted=0, only_degrees=False
     )
 
-    Y = filtered_time_series(series, order, transform, filter_kind)
+    Y = filtered_time_series(series, order, transform, filter_kind, padding=padding)
 
     A = np.zeros((N, N), dtype=np.float32)
     for (u, v) in edges:
@@ -192,7 +221,8 @@ def process_split_arrays(X: np.ndarray,
                          transform: str,
                          filter_kind: str,
                          out_dir: str,
-                         weight_floor: float = 1e-6):
+                         weight_floor: float = 1e-6,
+                         padding: str = "none"):
     """
     Build NVG graphs from X, y for a GIVEN order.
     """
@@ -208,6 +238,7 @@ def process_split_arrays(X: np.ndarray,
             transform=transform,
             filter_kind=filter_kind,
             weight_floor=weight_floor,
+            padding=padding,
         )
 
         np.savez_compressed(
@@ -217,7 +248,7 @@ def process_split_arrays(X: np.ndarray,
             label=y[idx]
         )
 
-    print(f"[{transform} | order={order} | {filter_kind}] "
+    print(f"[{transform} | order={order} | {filter_kind} | padding={padding}] "
           f"→ {len(X)} graphs at {out_dir}")
 
 
@@ -314,6 +345,13 @@ def parse_args():
         action="store_true",
         help="If set, also build pure unweighted NVGs (binary).",
     )
+    parser.add_argument(
+        "--padding",
+        type=str,
+        choices=["none", "zero"],
+        default="none",
+        help="Time-domain padding: 'none' or 'zero' (pad to 2N, then crop back).",
+    )
     return parser.parse_args()
 
 
@@ -376,6 +414,7 @@ def main():
                 filter_kind=args.filter_kind,
                 out_dir=out_dir,
                 weight_floor=args.weight_floor,
+                padding=args.padding,
             )
 
 
