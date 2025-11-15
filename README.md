@@ -5,4 +5,4 @@ For generating and saving the FrFT-guided visibility graphs (VGs) with any FrFT 
 
 For classifying the saved graphs, refer to codes `frft_guided_nvg_classify.py`.
 
-For learning the best order for the FrFT guided VGs and performing classification, refer to codes `learnable_frft_guided_nvg`.
+For learning the best order for the FrFT guided VGs and performing classification, refer to codes `learnable_frft_guided_nvg.py`.
